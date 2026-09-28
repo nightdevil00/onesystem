@@ -266,7 +266,7 @@ async function cmdDoctor(args: string[]): Promise<number> {
   for (const name of targets) {
     const check = await verify(runtimeDir(name), gpu, run)
     if (check.ok) {
-      process.stdout.write(`${name}: ok${check.torch ? ` (torch hip ${check.torch})` : ""}\n`)
+      process.stdout.write(`${name}: ok${check.torch ? ` (torch ${check.torch})` : ""}\n`)
     } else {
       bad++
       process.stdout.write(`${name}: FAILED\n`)

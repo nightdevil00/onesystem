@@ -443,13 +443,20 @@ export async function verify(
 
   const problems: string[] = []
   // The cheap discriminator: a ROCm build reports a HIP version and no CUDA version.
-  if (info.cuda !== null) problems.push("this is a CUDA build of torch; it cannot see an AMD GPU")
-  if (info.hip === null) problems.push("torch reports no HIP version, so it is not a ROCm build")
-  if (!info.available) problems.push("torch.cuda.is_available() is false: no GPU visible to this interpreter")
-  if (gpu.gfx && !info.arch.includes(gpu.gfx)) {
-    problems.push(`torch was not built for ${gpu.gfx}; it knows ${info.arch.join(", ") || "nothing"}`)
+  // The check is vendor-specific: demanding HIP on an NVIDIA box rejects a correct
+  // CUDA build, and vice versa. lspci tells us which one to ask for.
+  if (gpu.vendor === "amd") {
+    if (info.cuda !== null) problems.push("this is a CUDA build of torch; it cannot see an AMD GPU")
+    if (info.hip === null) problems.push("torch reports no HIP version, so it is not a ROCm build")
+    if (gpu.gfx && !info.arch.includes(gpu.gfx)) {
+      problems.push(`torch was not built for ${gpu.gfx}; it knows ${info.arch.join(", ") || "nothing"}`)
+    }
+  } else {
+    if (info.hip !== null) problems.push("this is a ROCm build of torch; it cannot see an NVIDIA GPU")
+    if (info.cuda === null) problems.push("torch reports no CUDA version, so it is not a CUDA build")
   }
-  return { ok: problems.length === 0, problems, torch: info.hip ?? undefined }
+  if (!info.available) problems.push("torch.cuda.is_available() is false: no GPU visible to this interpreter")
+  return { ok: problems.length === 0, problems, torch: info.hip ?? info.cuda ?? undefined }
 }
 
 export async function listRuntimes(): Promise<Runtime[]> {

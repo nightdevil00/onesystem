@@ -158,7 +158,12 @@ function scripted(plan: Plan = {}): { runner: Runner; steps: Step[]; cwds: (stri
       case "verify": {
         if (plan.torch === "fail") return fail("ModuleNotFoundError: No module named 'torch'")
         if (plan.torch === "garbage") return ok({ stdout: "warning: something\nnot json\n" })
-        return ok({ stdout: JSON.stringify(plan.torch ?? ROCM_TORCH) })
+        // The default build has to follow the simulated vendor. A ROCm torch on an
+        // NVIDIA card is refused by `verify`, so defaulting to ROCM_TORCH would make
+        // every NVIDIA case a failure test whatever it meant to assert -- and that
+        // mismatch is why the NVIDIA branch of `verify` had no coverage of its own.
+        const fallback = plan.gpu === "nvidia" ? CUDA_TORCH : ROCM_TORCH
+        return ok({ stdout: JSON.stringify(plan.torch ?? fallback) })
       }
       case "unclassified":
         return fail(`the script was asked for something it does not model: ${cmd} ${args.join(" ")}`)
@@ -361,6 +366,22 @@ describe("an install on an NVIDIA card", () => {
     const manifest = await readFile(join(rt.dir, "pyproject.toml"), "utf8")
     expect(manifest).toContain(`supersonic-julia = { path = "julia-src" }`)
     expect(manifest).not.toMatch(/rocm/i)
+  })
+
+  test("a CUDA build for the right vendor is accepted", async () => {
+    // The check that `verify` did not make before. Asking a CUDA build for a HIP version
+    // rejects the correct wheel on every NVIDIA machine, so `install laya` could not
+    // complete on NVIDIA at all.
+    const { runner } = scripted({ gpu: "nvidia" })
+    const rt = await install(findModel("laya"), { runner })
+    const check = await verify(rt.dir, { vendor: "nvidia" }, runner)
+    expect(check).toEqual({ ok: true, problems: [], torch: "13.0" })
+  })
+
+  test("a ROCm build on an NVIDIA card is named as the problem it is", async () => {
+    // The mirror of the AMD case, which the suite already covered.
+    const { runner } = scripted({ gpu: "nvidia", torch: ROCM_TORCH })
+    await expect(install(findModel("laya"), { runner })).rejects.toThrow(/ROCm build/)
   })
 })
 
