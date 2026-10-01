@@ -3,6 +3,37 @@
 Share one GPU decision service across OpenCode sessions. Models load on the first
 request and stop when idle.
 
+> **This is a fork.** Upstream is [micahn/onesystem](https://github.com/micahn/onesystem),
+> which is where issues and releases belong. The one local change is the NVIDIA
+> vendor check described in [My change](#my-change) below; everything else is
+> upstream's. The install commands still point at upstream's `install.sh`, which is
+> what you want unless you want this fork's checkout.
+
+## My change
+
+Upstream's `verify()` demanded a ROCm build unconditionally. It rejected any
+`torch.version.cuda` and required a non-null `torch.version.hip`, so on an NVIDIA
+card it rejected the correct CUDA wheel: `install <model>` and `doctor` could never
+pass, and no runtime could be installed.
+
+The guard already existed in the neighbouring `assertNoAcceleratorMixups`, which
+returns early when the vendor is not AMD. This applies the same shape to `verify()`,
+with the checks mirrored for NVIDIA, where the failure is a ROCm build or a non-null
+CUDA version. `torch.cuda.is_available()` stays a shared gate for both vendors.
+
+Two smaller things came with it:
+
+- `doctor`'s ok line printed the AMD-flavoured label `torch hip 13.0` on an NVIDIA
+  card. It now prints `torch <version>`.
+- The install test fixture defaulted its fake torch to a ROCm build regardless of
+  the simulated card, so `scripted({ gpu: "nvidia" })` described an NVIDIA card with
+  a ROCm build and passed against the unguarded check. The fixture now follows the
+  simulated vendor, and two tests cover the NVIDIA branch.
+
+Measured on an NVIDIA GTX 1650 Ti (sm_75, 3.64 GiB), torch 2.14.0+cu130: laya 2570
+MiB and julia 668 MiB resident, 3284 MiB of 4096 with both loaded, no OOM. Cold calls
+26.5s and 22.4s, warm 0.21s and 0.05s.
+
 ## Install
 
 Requires OpenCode V2, Git, curl, mise, and an AMD or NVIDIA GPU. The installer
@@ -267,3 +298,14 @@ AMD RX 9070 XT (gfx1201), ROCm 6.4 driver, ROCm 7.2 PyTorch wheel, laya 0.3.21:
 | Both models loaded | 6.6 GB VRAM |
 
 Cold calls spend most of their time importing `transformers`.
+
+On NVIDIA, the numbers are smaller because the card is smaller. GTX 1650 Ti
+(sm_75, 3.64 GiB), torch 2.14.0+cu130:
+
+| Operation | Time or memory |
+| --- | --- |
+| First tool call | laya 26.5 s; julia 22.4 s |
+| Warm tool call | laya 0.21 s; julia 0.05 s |
+| laya loaded | 2570 MiB resident |
+| julia loaded | 668 MiB resident |
+| Both models loaded | 3284 MiB of 4096, no OOM |
